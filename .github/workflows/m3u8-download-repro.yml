@@ -24,7 +24,8 @@ jobs:
         if: matrix.variant == 'baseline'
         shell: pwsh
         run: |
-          git show HEAD^:lib/utils/m3u8_parser.dart | Set-Content lib/utils/m3u8_parser.dart
+          git fetch --depth=1 origin d163d2a47b94889655fb9c7c66de65fb819e0f6d
+          git show d163d2a47b94889655fb9c7c66de65fb819e0f6d:lib/utils/m3u8_parser.dart | Set-Content lib/utils/m3u8_parser.dart
       - name: Prepare real video fixture
         shell: pwsh
         run: |
@@ -41,9 +42,13 @@ jobs:
           $baseline = '${{ matrix.variant }}' -eq 'baseline'
           flutter test --no-pub --dart-define=BASELINE=$($baseline.ToString().ToLower()) test/download_http_repro_test.dart --reporter expanded 2>&1 | Tee-Object ../verification/test.log
           exit $LASTEXITCODE
+      - name: Collect download evidence
+        if: always()
+        shell: pwsh
+        run: Copy-Item -LiteralPath ../verification -Destination repro-artifacts -Recurse
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: m3u8-download-${{ matrix.variant }}
-          path: ../verification/
+          path: repro-artifacts/
           retention-days: 7
