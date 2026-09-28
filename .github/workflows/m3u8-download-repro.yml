@@ -1,0 +1,49 @@
+name: M3U8 real HTTP download reproduction
+on:
+  push:
+    branches: [codex/verify-m3u8-download]
+permissions:
+  contents: read
+jobs:
+  download:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [baseline, fixed]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: subosito/flutter-action@v2.16.0
+        with:
+          channel: stable
+          flutter-version: '3.47.5'
+      - name: Prepare original parser for baseline
+        if: matrix.variant == 'baseline'
+        shell: pwsh
+        run: |
+          git show HEAD^:lib/utils/m3u8_parser.dart | Set-Content lib/utils/m3u8_parser.dart
+      - name: Prepare real video fixture
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force ../verification/m3u8-check | Out-Null
+          curl.exe --fail --location --retry 3 --max-time 90 https://test-streams.mux.dev/x36xhzz/url_0/url_462/193039199_mp4_h264_aac_hd_7.ts -o ../verification/m3u8-check/sample.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $actual = (Get-FileHash ../verification/m3u8-check/sample.ts -Algorithm SHA256).Hash
+          if ($actual -ne '70EAA07150CBBEB65056CB20D7B187A23C28F803BAE011CF64D41C6C37E60279') { throw 'Fixture checksum mismatch' }
+      - name: Locked dependencies
+        run: flutter pub get --enforce-lockfile
+      - name: Download through real DownloadManager
+        shell: pwsh
+        run: |
+          $baseline = '${{ matrix.variant }}' -eq 'baseline'
+          flutter test --no-pub --dart-define=BASELINE=$($baseline.ToString().ToLower()) test/download_http_repro_test.dart --reporter expanded 2>&1 | Tee-Object ../verification/test.log
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m3u8-download-${{ matrix.variant }}
+          path: ../verification/
+          retention-days: 7

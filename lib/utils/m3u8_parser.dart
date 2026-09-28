@@ -81,16 +81,7 @@ class M3u8Parser {
   }
 
   static String resolveUrl(String baseUrl, String relativeUrl) {
-    if (relativeUrl.startsWith('http://') ||
-        relativeUrl.startsWith('https://')) {
-      return relativeUrl;
-    }
-    final baseUri = Uri.parse(baseUrl);
-    if (relativeUrl.startsWith('/')) {
-      return '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}$relativeUrl';
-    }
-    final basePath = baseUrl.substring(0, baseUrl.lastIndexOf('/') + 1);
-    return '$basePath$relativeUrl';
+    return Uri.parse(baseUrl).resolve(relativeUrl).toString();
   }
 
   static M3u8MasterPlaylist parseMasterPlaylist(
