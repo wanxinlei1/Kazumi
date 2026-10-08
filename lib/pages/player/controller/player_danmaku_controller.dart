@@ -299,8 +299,8 @@ abstract class _PlayerDanmakuController with Store {
     KazumiLogger().i('PlayerController: attempting to get danmaku $episodeID');
     danmakuLoading = true;
     try {
-      danDanmakus.clear();
       var res = await DanmakuApi.getDanDanmakuByEpisodeID(episodeID);
+      danDanmakus.clear();
       addDanmakus(res);
       return res.isNotEmpty;
     } catch (e) {
