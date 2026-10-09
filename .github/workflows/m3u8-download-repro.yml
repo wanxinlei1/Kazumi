@@ -1,0 +1,54 @@
+name: Verify direct download resume
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+      - uses: subosito/flutter-action@v2.16.0
+        with:
+          channel: stable
+          flutter-version-file: pubspec.yaml
+      - name: Install build and video tools
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++ ffmpeg
+      - run: flutter pub get
+      - name: Create valid MP4 fixture
+        run: |
+          mkdir -p verification-output
+          ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=160x90:rate=10 -t 2 -c:v libx264 -pix_fmt yuv420p verification-output/sample.mp4
+          echo "DOWNLOAD_TEST_VIDEO=$PWD/verification-output/sample.mp4" >> "$GITHUB_ENV"
+      - name: Reproduce on unchanged upstream downloader
+        shell: bash
+        run: |
+          git checkout 7b19c307e042dfb8863d647ce965f69fd1be29d9 -- lib/services/download/download_manager.dart
+          export DOWNLOAD_TEST_OUTPUT="$PWD/verification-output/baseline"
+          set +e
+          flutter test test/direct_download_resume_test.dart --reporter expanded > verification-output/baseline.log 2>&1
+          result=$?
+          set -e
+          cat verification-output/baseline.log
+          test "$result" -eq 1
+          grep -q '200 response to Range replaces the incomplete file.*\[E\]' verification-output/baseline.log
+          git restore --source=HEAD --staged --worktree lib/services/download/download_manager.dart
+      - name: Verify corrected downloader and all project tests
+        shell: bash
+        run: |
+          export DOWNLOAD_TEST_OUTPUT="$PWD/verification-output/fixed"
+          flutter test --reporter expanded | tee verification-output/fixed.log
+          flutter analyze --no-fatal-infos --fatal-warnings | tee verification-output/analyze.log
+          sha256sum verification-output/sample.mp4 verification-output/baseline/*.mp4 verification-output/fixed/*.mp4 | tee verification-output/hashes.txt
+          for video in verification-output/sample.mp4 verification-output/baseline/ignored.mp4 verification-output/fixed/ignored.mp4; do
+            echo "$video"
+            ffprobe -v error -show_entries format=duration,size -of json "$video" || true
+          done > verification-output/probe.txt 2>&1
+          cat verification-output/probe.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: direct-download-evidence
+          path: verification-output
