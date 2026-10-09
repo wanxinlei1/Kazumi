@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:kazumi/modules/download/download_module.dart';
 import 'package:kazumi/pages/download/download_controller.dart';
+import 'package:kazumi/pages/player/controller/player_danmaku_controller.dart';
 import 'package:kazumi/plugins/plugins.dart';
 import 'package:kazumi/plugins/plugins_controller.dart';
 import 'package:kazumi/repositories/download_repository.dart';
@@ -37,6 +38,7 @@ void main() {
     final slowStarted = Completer<void>();
     final releaseFirst = Completer<void>();
     final commentsFetched = <int, DateTime>{};
+    var offline = false;
     final repository = DownloadRepository();
     final manager = DownloadManager();
     final plugins = PluginsController()
@@ -54,6 +56,16 @@ void main() {
     DioFactory.apiDio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
+          if (offline) {
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.connectionError,
+                message: 'verification: network disconnected',
+              ),
+            );
+            return;
+          }
           if (options.uri.host != 'api.dandanplay.net') {
             handler.reject(DioException(requestOptions: options));
             return;
@@ -130,7 +142,7 @@ void main() {
       final controllerProgress = manager.onProgress!;
       manager.onProgress = (key, number, episode, speed) {
         controllerProgress(key, number, episode, speed);
-        notifications.add('$number:${episode.status.name}');
+        notifications.add('$number:${episode.status}');
         if (episode.status == DownloadStatus.failed && !completed.isCompleted) {
           completed.completeError(StateError(episode.errorMessage));
         }
@@ -190,13 +202,26 @@ void main() {
       );
       expect(firstComments?.single.message, 'episode 1 comment');
       expect(secondComments, isNull);
+      offline = true;
+      final player = PlayerDanmakuController(
+        isLocalPlayback: () => true,
+        downloadController: controller,
+      );
+      final firstPlayback = await player.fetchDanmaku(123, 'queue-probe', 1);
+      final secondPlayback = await player.fetchDanmaku(123, 'queue-probe', 2);
+      expect(firstPlayback.status, DanmakuLoadStatus.success);
+      expect(secondPlayback.status, DanmakuLoadStatus.failed);
       final evidence = {
         'upstream': '4e821e48282d0e8e3753fd6266bb1d15e4dc0f02',
         'queueWaitSeconds':
             DateTime.now().difference(fetchedAt).inMilliseconds / 1000,
         'apiCommentResponses': commentsFetched.length,
-        'firstVideoStatus': record.episodes[1]!.status.name,
-        'secondVideoStatus': record.episodes[2]!.status.name,
+        'firstVideoCompleted':
+            record.episodes[1]!.status == DownloadStatus.completed,
+        'secondVideoCompleted':
+            record.episodes[2]!.status == DownloadStatus.completed,
+        'firstOfflineDanmakuStatus': firstPlayback.status.name,
+        'secondOfflineDanmakuStatus': secondPlayback.status.name,
         'firstCachedComments': firstComments?.length ?? 0,
         'secondCachedComments': secondComments?.length ?? 0,
         'notifications': notifications,
