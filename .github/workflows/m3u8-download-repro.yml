@@ -1,0 +1,35 @@
+name: Verify queued offline danmaku
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2.16.0
+        with:
+          channel: stable
+          flutter-version-file: pubspec.yaml
+      - name: Install build and video tools
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++ ffmpeg
+      - run: flutter pub get
+      - name: Create valid video segment
+        run: |
+          mkdir -p verification-output
+          ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=160x90:rate=10 -t 2 -c:v libx264 -pix_fmt yuv420p -f mpegts verification-output/sample.ts
+          echo "DOWNLOAD_TEST_TS=$PWD/verification-output/sample.ts" >> "$GITHUB_ENV"
+          echo "DOWNLOAD_TEST_OUTPUT=$PWD/verification-output" >> "$GITHUB_ENV"
+      - name: Reproduce using the unchanged download controller
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter test test/queued_danmaku_probe_test.dart --reporter expanded | tee verification-output/probe.log
+          sha256sum verification-output/sample.ts verification-output/episode-*-seg_00000.ts | tee verification-output/hashes.txt
+          ffprobe -v error -show_entries format=duration,size -of json verification-output/episode-2-seg_00000.ts > verification-output/video-probe.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: queued-danmaku-evidence
+          path: verification-output
