@@ -724,6 +724,12 @@ class DownloadManager implements IDownloadManager {
         }
       }
 
+      // A server may ignore Range and return the entire file with HTTP 200.
+      // Replace the incomplete file instead of appending a duplicate prefix.
+      if (existingBytes > 0 && response.statusCode == HttpStatus.ok) {
+        existingBytes = 0;
+      }
+
       final contentRange = response.headers.value('content-range');
       final contentLength = int.tryParse(
               response.headers.value(Headers.contentLengthHeader) ?? '') ??
