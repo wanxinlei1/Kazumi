@@ -1,0 +1,74 @@
+name: Check queued danmaku fix
+on:
+  push:
+    branches: [codex/check-queued-danmaku-fix]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  flutter-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2.16.0
+        with:
+          channel: stable
+          flutter-version-file: pubspec.yaml
+          cache: true
+      - run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++ libgtk-3-dev
+      - run: flutter pub get
+      - name: Check regression test formatting
+        run: dart format --output=none --set-exit-if-changed test/download_danmaku_cache_test.dart
+      - name: Targeted regression
+        run: |
+          set -o pipefail
+          flutter test test/download_danmaku_cache_test.dart --reporter expanded | tee targeted.log
+      - name: Full test suite
+        if: always()
+        run: |
+          set -o pipefail
+          flutter test --concurrency=2 --reporter expanded | tee full-test.log
+      - name: Strict analysis
+        if: always()
+        run: |
+          set -o pipefail
+          flutter analyze --no-fatal-infos --fatal-warnings | tee analyze.log
+      - name: Verify regression rejects upstream controller
+        if: success()
+        shell: bash
+        run: |
+          git show d48fc8b994f85d8f2a4171f0234cf539e7f99261:lib/pages/download/download_controller.dart > lib/pages/download/download_controller.dart
+          set +e
+          flutter test test/download_danmaku_cache_test.dart --plain-name 'real downloads queued beyond 30 seconds both retain offline comments' --reporter expanded > baseline.log 2>&1
+          result=$?
+          set -e
+          git restore lib/pages/download/download_controller.dart
+          cat baseline.log
+          test "$result" -ne 0
+          grep -q 'Condition timed out' baseline.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: queued-danmaku-check-logs
+          path: '*.log'
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2.16.0
+        with:
+          channel: stable
+          flutter-version-file: pubspec.yaml
+          cache: true
+      - run: flutter pub get
+      - name: Windows regression
+        run: flutter test test/download_danmaku_cache_test.dart --reporter expanded
+      - name: Windows release build
+        run: flutter build windows --release
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: queued-danmaku-windows-release
+          path: build/windows/x64/runner/Release/
