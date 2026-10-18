@@ -55,7 +55,19 @@ jobs:
           path: '*.log'
   windows-build:
     runs-on: windows-latest
+    env:
+      DANDANAPI_APPID: ${{ secrets.DANDANAPI_APPID }}
+      DANDANAPI_KEY: ${{ secrets.DANDANAPI_KEY }}
+      KAZUMI_APPID: ${{ secrets.KAZUMI_APPID }}
+      KAZUMI_KEY: ${{ secrets.KAZUMI_KEY }}
     steps:
+      - name: Require credentials for live danmaku UI verification
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:DANDANAPI_APPID) -or
+              [string]::IsNullOrWhiteSpace($env:DANDANAPI_KEY)) {
+            throw 'Live danmaku UI verification requires repository secrets DANDANAPI_APPID and DANDANAPI_KEY. A build without them returns HTTP 403 and cannot verify online caching.'
+          }
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2.16.0
         with:
@@ -66,9 +78,14 @@ jobs:
       - name: Windows regression
         run: flutter test test/download_danmaku_cache_test.dart --reporter expanded
       - name: Windows release build
-        run: flutter build windows --release
+        run: >-
+          flutter build windows --release
+          --dart-define=DANDANAPI_APPID=$env:DANDANAPI_APPID
+          --dart-define=DANDANAPI_KEY=$env:DANDANAPI_KEY
+          --dart-define=KAZUMI_APPID=$env:KAZUMI_APPID
+          --dart-define=KAZUMI_KEY=$env:KAZUMI_KEY
       - uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: queued-danmaku-windows-release
+          name: queued-danmaku-windows-ui-release
           path: build/windows/x64/runner/Release/
